@@ -1,0 +1,178 @@
+# mega_platform_final.py
+import streamlit as st
+import random
+from datetime import datetime
+
+# === شبیه‌ساز ChatGPT ===
+class ChatGPTSimulator:
+    @staticmethod
+    def generate_poem(topic):
+        poems = [
+            f"زندگی و {topic}، بازی و امید، هر لحظه یک قصه جدید.",
+            f"{topic} در دل شب، مثل نور ستاره‌ها، می‌درخشد و می‌ماند در خاطره‌ها.",
+            f"آوای {topic} در دل من می‌رقصد با عشق و شور هر دم."
+        ]
+        return random.choice(poems)
+
+    @staticmethod
+    def generate_story(topic):
+        stories = [
+            f"روزی روزگاری در دنیایی پر از {topic}، قهرمان ما شجاعانه سفر خود را آغاز کرد.",
+            f"در شهری که پر از {topic} بود، دو دوست تصمیم گرفتند رازهای دنیا را کشف کنند.",
+            f"داستانی از {topic}، جایی که هر تصمیم سرنوشت جدیدی می‌ساخت."
+        ]
+        return random.choice(stories)
+
+# === کلاس کاربر ===
+class User:
+    def __init__(self, username, bio=""):
+        self.username = username
+        self.bio = bio
+        self.following = []
+        self.followers = []
+        self.posts = []
+        self.messages = []
+        self.library = []
+        self.games_played = []
+
+    def follow(self, other_user):
+        if other_user not in self.following:
+            self.following.append(other_user)
+            other_user.followers.append(self)
+
+    def post_content(self, content, type_="text"):
+        post = {"user": self.username, "content": content, "type": type_, "time": datetime.now()}
+        self.posts.append(post)
+        return post
+
+    def send_message(self, receiver, content):
+        message = {"from": self.username, "to": receiver.username, "content": content, "time": datetime.now()}
+        self.messages.append(message)
+        receiver.messages.append(message)
+
+    def add_book(self, book_title):
+        self.library.append(book_title)
+
+    def play_game(self, game_name):
+        score = random.randint(0, 100)
+        game_result = {"game": game_name, "score": score, "time": datetime.now()}
+        self.games_played.append(game_result)
+        return game_result
+
+# === کلاس پلتفرم ===
+class MegaPlatform:
+    def __init__(self):
+        self.users = []
+        self.timeline = []
+        self.chatgpt = ChatGPTSimulator()
+
+    def add_user(self, username, bio=""):
+        user = next((u for u in self.users if u.username == username), None)
+        if not user:
+            user = User(username, bio)
+            self.users.append(user)
+        return user
+
+    def post_global(self, user, content, type_="text"):
+        post = user.post_content(content, type_)
+        self.timeline.append(post)
+        return post
+
+    def post_poem(self, user, topic):
+        poem = self.chatgpt.generate_poem(topic)
+        return self.post_global(user, poem, type_="poem")
+
+    def post_story(self, user, topic):
+        story = self.chatgpt.generate_story(topic)
+        return self.post_global(user, story, type_="story")
+
+# === ایجاد پلتفرم و ذخیره وضعیت در session_state ===
+if 'platform' not in st.session_state:
+    st.session_state.platform = MegaPlatform()
+platform = st.session_state.platform
+
+# === رابط کاربری Streamlit ===
+st.title("پلتفرم همه‌چیزه حرفه‌ای")
+
+# --- ورود کاربر ---
+st.sidebar.header("ورود / ثبت‌نام")
+username = st.sidebar.text_input("نام کاربری")
+bio = st.sidebar.text_input("بیو (اختیاری)")
+
+if st.sidebar.button("ورود / ثبت‌نام"):
+    current_user = platform.add_user(username, bio)
+    st.session_state.current_user = current_user
+    st.sidebar.success(f"خوش آمدی {username}!")
+
+# --- نمایش تایم‌لاین ---
+if 'current_user' in st.session_state:
+    user = st.session_state.current_user
+
+    st.header(f"تایم‌لاین {user.username}")
+    post_text = st.text_area("پست جدید")
+    if st.button("ارسال پست"):
+        platform.post_global(user, post_text)
+        st.success("پست ارسال شد!")
+
+    poem_topic = st.text_input("موضوع شعر")
+    if st.button("ارسال شعر"):
+        platform.post_poem(user, poem_topic)
+        st.success("شعر ارسال شد!")
+
+    story_topic = st.text_input("موضوع داستان")
+    if st.button("ارسال داستان"):
+        platform.post_story(user, story_topic)
+        st.success("داستان ارسال شد!")
+
+    st.subheader("تایم‌لاین جهانی")
+    for post in reversed(platform.timeline):
+        st.write(f"[{post['time'].strftime('%H:%M:%S')}] {post['user']} ({post['type']}): {post['content']}")
+
+    # --- کتابخانه ---
+    st.header("کتابخانه")
+    book_name = st.text_input("افزودن کتاب جدید")
+    if st.button("اضافه کردن کتاب"):
+        user.add_book(book_name)
+        st.success(f"{book_name} اضافه شد!")
+    for book in user.library:
+        st.write(f"- {book}")
+
+    # --- بازی ---
+    st.header("بازی‌ها")
+    game_name = st.text_input("نام بازی")
+    if st.button("بازی کن"):
+        result = user.play_game(game_name)
+        st.success(f"{game_name} بازی شد! امتیاز: {result['score']}")
+    for g in user.games_played:
+        st.write(f"{g['game']} - امتیاز: {g['score']} در {g['time'].strftime('%H:%M:%S')}")
+
+    # --- پیام خصوصی ---
+    st.header("پیام خصوصی")
+    receiver_name = st.text_input("گیرنده پیام")
+    message_content = st.text_area("پیام")
+    if st.button("ارسال پیام"):
+        receiver = next((u for u in platform.users if u.username == receiver_name), None)
+        if receiver:
+            user.send_message(receiver, message_content)
+            st.success("پیام ارسال شد!")
+        else:
+            st.error("کاربر پیدا نشد!")
+
+    st.subheader("پیام‌های دریافتی")
+    for msg in user.messages:
+        st.write(f"[{msg['time'].strftime('%H:%M:%S')}] {msg['from']} -> {msg['to']}: {msg['content']}")
+
+    # --- دنبال‌کنندگان ---
+    st.header("دنبال‌کنندگان و دنبال‌شده‌ها")
+    st.write(f"دنبال‌کنندگان: {[u.username for u in user.followers]}")
+    st.write(f"دنبال‌شده‌ها: {[u.username for u in user.following]}")
+
+    # دنبال کردن کاربر دیگر
+    follow_name = st.text_input("دنبال کردن کاربر")
+    if st.button("دنبال کن"):
+        target = next((u for u in platform.users if u.username == follow_name), None)
+        if target:
+            user.follow(target)
+            st.success(f"{follow_name} دنبال شد!")
+        else:
+            st.error("کاربر پیدا نشد!")
