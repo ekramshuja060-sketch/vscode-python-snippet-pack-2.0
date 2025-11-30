@@ -1,0 +1,179 @@
+import React, { useState, useEffect } from 'react';
+import { SafeAreaView, TextInput, Button, FlatList, Text } from 'react-native';
+
+export default function App() {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [stories, setStories] = useState([]);
+  const [storyContent, setStoryContent] = useState("");
+  const [ws, setWs] = useState(null);
+
+  const API_URL = "http://localhost:8000";
+
+  // ورود
+  const login = async () => {
+    const res = await fetch(`${API_URL}/login`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({username, password})
+    });
+    if (res.ok) {
+      setLoggedIn(true);
+      const socket = new WebSocket("ws://localhost:8000/ws");
+      socket.onmessage = (event) => {
+        setMessages(prev => [...prev, event.data]);
+      };
+      setWs(socket);
+      fetchStories();
+    }
+  };
+
+  // ارسال پیام چت
+  const sendMessage = () => {
+    if (ws && message.trim() !== "") {
+      ws.send(`${username}: ${message}`);
+      setMessage("");
+    }
+  };
+
+  // ارسال استوری
+  const postStory = async () => {
+    await fetch(`${API_URL}/story`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({user: username, content: storyContent})
+    });
+    setStoryContent("");
+    fetchStories();
+  };
+
+  // دریافت استوری‌ها
+  const fetchStories = async () => {
+    const res = await fetch(`${API_URL}/stories`);
+    const data = await res.json();
+    setStories(data);
+  };
+
+  // لایک استوری
+  const likeStory = async (index) => {
+    await fetch(`${API_URL}/story/like?user=${username}&index=${index}`, {method: "POST"});
+    fetchStories();
+  };
+
+  if (!loggedIn) {
+    return (
+      <SafeAreaView>
+        <TextInput placeholder="Username" onChangeText={setUsername} value={username} />
+        <TextInput placeholder="Password" secureTextEntry onChangeText={setPassword} value={password} />
+        <Button title="Login" onPress={login} />
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView>
+      <TextInput placeholder="Message" onChangeText={setMessage} value={message} />
+      <Button title="Send" onPress={sendMessage} />
+      <FlatList
+        data={messages}
+        keyExtractor={(item, index) => index.toString()}
+        renderItem={({item}) => <Text>{item}</Text>}
+      />
+      <TextInput placeholder="New Story" onChangeText={setStoryContent} value={storyContent} />
+      <Button title="Post Story" onPress={postStory} />
+      <FlatList
+        data={stories}
+        keyExtractor={(item, index) => index.toString()}
+        renderItem={({item, index}) => (
+          <Text>{item.user}: {item.content} | Likes: {item.likes} <Button title="Like" onPress={() => likeStory(index)} /></Text>
+        )}
+      />
+    </SafeAreaView>
+  );
+}from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List
+
+app = FastAPI()
+
+# دسترسی به فرانت‌اند
+origins = ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# دیتابیس ساده در حافظه
+users_db = {}
+stories_db = []
+messages_db = []
+
+# مدل‌ها
+class User(BaseModel):
+    username: str
+    password: str
+
+class Message(BaseModel):
+    sender: str
+    content: str
+
+class Story(BaseModel):
+    user: str
+    content: str
+
+# ثبت‌نام
+@app.post("/register")
+def register(user: User):
+    if user.username in users_db:
+        raise HTTPException(status_code=400, detail="Username exists")
+    users_db[user.username] = user.password
+    return {"message": "User registered successfully"}
+
+# ورود
+@app.post("/login")
+def login(user: User):
+    if users_db.get(user.username) != user.password:
+        raise HTTPException(status_code=400, detail="Invalid credentials")
+    return {"message": "Login successful"}
+
+# ارسال استوری
+@app.post("/story")
+def post_story(story: Story):
+    stories_db.append({"user": story.user, "content": story.content, "likes": 0})
+    return {"message": "Story posted"}
+
+# گرفتن استوری‌ها
+@app.get("/stories")
+def get_stories():
+    return stories_db
+
+# لایک استوری
+@app.post("/story/like")
+def like_story(user: str, index: int):
+    if index < 0 or index >= len(stories_db):
+        raise HTTPException(status_code=400, detail="Invalid story index")
+    stories_db[index]["likes"] += 1
+    return {"message": "Story liked"}
+
+# WebSocket برای چت گروهی
+connected_clients: List[WebSocket] = []
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    await ws.accept()
+    connected_clients.append(ws)
+    try:
+        while True:
+            data = await ws.receive_text()
+            messages_db.append(data)
+            for client in connected_clients:
+                if client != ws:
+                    await client.send_text(data)
+    except:
+        connected_clients.remove(ws)
