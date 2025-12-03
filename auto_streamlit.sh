@@ -1,4 +1,4 @@
-app.py# mega_platform_pro_online.p
+.pyy# mega_platform_pro_online.py
 import streamlit as st
 import sqlite3
 import hashlib
